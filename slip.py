@@ -43,6 +43,7 @@ class Enlace:
     def __init__(self, linha_serial):
         self.linha_serial = linha_serial
         self.linha_serial.registrar_recebedor(self.__raw_recv)
+        self.datagrama_residual = b''
 
     def registrar_recebedor(self, callback):
         self.callback = callback
@@ -51,7 +52,20 @@ class Enlace:
         # TODO: Preencha aqui com o código para enviar o datagrama pela linha
         # serial, fazendo corretamente a delimitação de quadros e o escape de
         # sequências especiais, de acordo com o protocolo CamadaEnlace (RFC 1055).
-        pass
+
+        novo_datagrama = b''
+
+        for byte in datagrama:
+            byte = byte.to_bytes(1, byteorder='big')
+
+            if (byte == b'\xc0'):
+                novo_datagrama += b'\xdb\xdc'
+            elif (byte == b'\xdb'):
+                novo_datagrama += b'\xdb\xdd'
+            else:
+                novo_datagrama += byte
+
+        self.linha_serial.enviar(b'\xc0' + novo_datagrama + b'\xc0')
 
     def __raw_recv(self, dados):
         # TODO: Preencha aqui com o código para receber dados da linha serial.
@@ -61,4 +75,36 @@ class Enlace:
         # vir quebrado de várias formas diferentes - por exemplo, podem vir
         # apenas pedaços de um quadro, ou um pedaço de quadro seguido de um
         # pedaço de outro, ou vários quadros de uma vez só.
-        pass
+
+        datagrama = self.datagrama_residual
+
+        for byte in dados:
+            byte = byte.to_bytes(1, byteorder='big')
+
+            if (byte == b'\xc0' and datagrama != b''):
+                # self.callback(datagrama)
+                # datagrama = b''
+                
+                try:
+                    self.callback(datagrama)
+                    datagrama = b''
+                except:
+                    # ignora a exceção, mas mostra na tela
+                    import traceback
+                    traceback.print_exc()
+                finally:
+                    # faça aqui a limpeza necessária para garantir que não vão sobrar
+                    # pedaços do datagrama em nenhum buffer mantido por você
+                    datagrama = b''
+                    self.datagrama_residual = b''
+            
+            elif (byte != b'\xc0'):
+                datagrama += byte
+
+                if (datagrama[-2:] == b'\xdb\xdc'):
+                    datagrama = datagrama[:-2] + b'\xc0'
+
+                elif (datagrama[-2:] == b'\xdb\xdd'):
+                    datagrama = datagrama[:-2] + b'\xdb'
+        
+        self.datagrama_residual = datagrama
